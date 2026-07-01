@@ -110,6 +110,15 @@
   .undo{font-size:16px; color:var(--muted); background:var(--surface); border:1px solid var(--line); width:38px; height:38px; border-radius:50%; display:inline-grid; place-items:center; padding:0; flex:none}
   .undo:active{background:rgba(255,255,255,.12)}
 
+  /* navegador de días */
+  .daynav{display:flex;align-items:center;gap:8px;margin:16px 0 2px}
+  .dnbtn{width:42px;height:42px;flex:none;border-radius:12px;background:var(--surface);border:1px solid var(--line);font-size:16px;color:var(--text);display:grid;place-items:center}
+  .dnbtn:disabled{opacity:.25}
+  .dnmid{flex:1;text-align:center}
+  .dnday{font-family:var(--disp);font-weight:800;font-size:15px}
+  .dnhoy{display:inline-block;margin-top:4px;font-size:11px;font-weight:800;color:#2a1d00;background:var(--gold);border-radius:999px;padding:3px 10px}
+  .pastnote{font-size:12px;color:var(--gold);background:rgba(255,212,94,.1);border:1px solid rgba(255,212,94,.25);border-radius:12px;padding:9px 12px;margin:8px 0 10px;line-height:1.45}
+
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:9px}
   .tile{background:var(--surface); border:1px solid var(--line); border-radius:var(--r); padding:13px 14px}
   .tile .k{font-size:11px;font-weight:800;color:var(--faint);letter-spacing:.05em;text-transform:uppercase}
@@ -221,6 +230,7 @@ const parseKey=k=>{const[y,m,da]=k.split('-').map(Number);return new Date(y,m-1,
 const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x;};
 const daysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
 const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const DIAS_S=['dom','lun','mar','mié','jue','vie','sáb'];
 const uid=()=>Math.random().toString(36).slice(2,8);
 
 const BADGES=[
@@ -307,7 +317,8 @@ function xpOf(s,pid){ const log=s.log[pid]||{}; let xp=0;
 function streaksFor(s,pid){
   const dailies=s.habits; const log=s.log[pid]||{}; const tk=todayKey();
   const res={}; dailies.forEach(h=>res[h.id]=0);
-  for(let dt=new Date(parseKey(s.startDate)); dkey(dt)<=tk; dt=addDays(dt,1)){
+  let start=s.startDate; for(const k in log){ if(k<start) start=k; }
+  for(let dt=new Date(parseKey(start)); dkey(dt)<=tk; dt=addDays(dt,1)){
     const k=dkey(dt), isT=k===tk, day=log[k], hab=(day&&day.habits)||{};
     dailies.forEach(h=>{ if(hab[h.id]) res[h.id]++; else if(!isT) res[h.id]=0; });
   }
@@ -357,6 +368,7 @@ function App(){
   const [flash,setFlash]=useState(null);
   const [pop,setPop]=useState(null);
   const [choice,setChoice]=useState(null);
+  const [selKey,setSelKey]=useState(todayKey());
   const clientId=useRef('c'+Math.random().toString(36).slice(2)+Date.now());
   const chRef=useRef(null);
 
@@ -403,29 +415,33 @@ function App(){
   const stats={}; data.players.forEach(p=>stats[p.id]=statsFor(data,p.id));
   const player=data.players.find(p=>p.id===who);
   const tk=todayKey();
+  const selDate=parseKey(selKey); const selIsToday=selKey===tk;
 
   function toggleHabit(hid){
     const h=data.habits.find(x=>x.id===hid);
-    const day=dayOf(data,who,tk); const was=!!(day&&day.habits&&day.habits[hid]);
-    update(n=>{ const L=n.log[who]; L[tk]=L[tk]||{habits:{},vices:{}}; L[tk].habits=L[tk].habits||{};
-      if(L[tk].habits[hid]) delete L[tk].habits[hid]; else L[tk].habits[hid]=true; });
+    const day=dayOf(data,who,selKey); const was=!!(day&&day.habits&&day.habits[hid]);
+    update(n=>{ const L=n.log[who]; L[selKey]=L[selKey]||{habits:{},vices:{}}; L[selKey].habits=L[selKey].habits||{};
+      if(L[selKey].habits[hid]) delete L[selKey].habits[hid]; else L[selKey].habits[hid]=true; });
     if(!was){ setFlash({hid,pts:h.points}); setPop(hid); setTimeout(()=>setFlash(null),1000); setTimeout(()=>setPop(null),460); }
   }
   function doVice(vid){
     const v=data.vices.find(x=>x.id===vid);
     const credit=stats[who].credit;
     if(credit>=v.price){ setChoice(vid); }
-    else if(window.confirm(`No te llegan créditos (tienes ${credit}). Esto restará ${v.price} de tu Duelo del mes. ¿Seguro?`)) payVice(vid,'p');
+    else if(window.confirm(`No te llegan créditos (tienes ${credit}). Esto restará ${v.price} de tu Duelo. ¿Seguro?`)) payVice(vid,'p');
   }
   function payVice(vid,pay){
-    update(n=>{ const L=n.log[who]; L[tk]=L[tk]||{habits:{},vices:{}}; L[tk].vices=L[tk].vices||{}; const lst=viceList(L[tk].vices[vid]); lst.push({pay}); L[tk].vices[vid]=lst; });
+    update(n=>{ const L=n.log[who]; L[selKey]=L[selKey]||{habits:{},vices:{}}; L[selKey].vices=L[selKey].vices||{}; const lst=viceList(L[selKey].vices[vid]); lst.push({pay}); L[selKey].vices[vid]=lst; });
     setChoice(null);
   }
   function undoVice(vid){
-    update(n=>{ const L=n.log[who]; if(L[tk]&&L[tk].vices){ const lst=viceList(L[tk].vices[vid]); lst.pop(); if(lst.length) L[tk].vices[vid]=lst; else delete L[tk].vices[vid]; } });
+    update(n=>{ const L=n.log[who]; if(L[selKey]&&L[selKey].vices){ const lst=viceList(L[selKey].vices[vid]); lst.pop(); if(lst.length) L[selKey].vices[vid]=lst; else delete L[selKey].vices[vid]; } });
   }
-  function undoVice(vid){
-    update(n=>{ const L=n.log[who]; if(L[tk]&&L[tk].vices&&L[tk].vices[vid]>0){ L[tk].vices[vid]--; if(L[tk].vices[vid]<=0) delete L[tk].vices[vid]; } });
+  function shiftDay(n){
+    const k=dkey(addDays(parseKey(selKey),n));
+    if(k>todayKey()) return;
+    if(k<dkey(addDays(new Date(),-45))) return;
+    setSelKey(k);
   }
 
   const sA=stats[P1.id].duelMonth, sB=stats[P2.id].duelMonth;
@@ -473,10 +489,19 @@ function App(){
       </div>
       <div className="center faint" style={{fontSize:12,margin:'2px 0 4px'}}>marcando a <b style={{color:player.color}}>{player.name}</b></div>
 
-      <div className="sectlabel"><span>Hábitos de hoy</span><span style={{textTransform:'none',letterSpacing:0,color:'var(--muted)'}}>{now.getDate()} {MESES[now.getMonth()].slice(0,3)}</span></div>
+      <div className="daynav">
+        <button className="dnbtn" onClick={()=>shiftDay(-1)} aria-label="Día anterior">◀</button>
+        <div className="dnmid">
+          <div className="dnday">{selIsToday?'Hoy':(DIAS_S[selDate.getDay()]+' '+selDate.getDate()+' '+MESES[selDate.getMonth()].slice(0,3))}</div>
+          {!selIsToday && <button className="dnhoy" onClick={()=>setSelKey(todayKey())}>↩ volver a hoy</button>}
+        </div>
+        <button className="dnbtn" disabled={selIsToday} onClick={()=>shiftDay(1)} aria-label="Día siguiente">▶</button>
+      </div>
+      {!selIsToday && <div className="pastnote">✏️ Estás editando el <b>{selDate.getDate()} de {MESES[selDate.getMonth()]}</b>: lo que marques o deshagas cuenta para ese día.</div>}
+      <div className="sectlabel"><span>Hábitos{selIsToday?' de hoy':''}</span></div>
       <div className="shopnote">Cada hábito suma a la vez: <b>puntos</b> al Duelo del mes y <b>créditos</b> a tu monedero.</div>
       {data.habits.map(h=>{
-        const day=dayOf(data,who,tk); const done=!!(day&&day.habits&&day.habits[h.id]);
+        const day=dayOf(data,who,selKey); const done=!!(day&&day.habits&&day.habits[h.id]);
         const streak=stats[who].streaks[h.id]||0;
         return (
           <div key={h.id} className={'habit'+(done?' done':'')+(pop===h.id?' pop':'')} style={{'--tint':hexA(player.color,.12),'--bord':hexA(player.color,.4)}}>
@@ -502,7 +527,7 @@ function App(){
       <div className="sectlabel">🛒 La tienda de antojos</div>
       <div className="shopnote">Al hacer un antojo eliges cómo pagarlo: <b>💰 con créditos</b> (no toca el Duelo) o <b>⚔️ del Duelo</b> (guardas créditos). Sin créditos, va directo al Duelo.</div>
       {data.vices.map(v=>{
-        const day=dayOf(data,who,tk); const lst=viceList(day&&day.vices&&day.vices[v.id]);
+        const day=dayOf(data,who,selKey); const lst=viceList(day&&day.vices&&day.vices[v.id]);
         const cc=lst.filter(e=>e.pay==='c').length, pp=lst.filter(e=>e.pay==='p').length; const cnt=lst.length;
         return (
           <div key={v.id} className={'vice'+(cnt>0?' used':'')}>
@@ -639,7 +664,7 @@ function Ajustes({data,update,setModal}){
         <button className="btn ghost sm" onClick={async()=>{ if(confirm('¿Poner a CERO los marcadores y el monedero de los dos?\n\nSe CONSERVAN tus hábitos, antojos y jugadores. No se puede deshacer.')){ await saveRemote(resetProgress(data)); location.reload(); } }}>↺ Reiniciar solo los puntos (mantiene tu configuración)</button>
         <button className="btn ghost sm" style={{color:'var(--danger)'}} onClick={async()=>{ if(confirm('¿BORRAR TODO y volver a los valores de fábrica?\n\nSe pierden también tus hábitos y antojos personalizados. No se puede deshacer.')){ await saveRemote(seed()); location.reload(); } }}>🗑️ Borrar todo (volver de fábrica)</button>
       </div>
-      <div className="faint" style={{fontSize:11,textAlign:'center',marginTop:14,opacity:.7}}>El Duelo · versión 3 · sync reforzada</div>
+      <div className="faint" style={{fontSize:11,textAlign:'center',marginTop:14,opacity:.7}}>El Duelo · versión 4 · días anteriores + deshacer arreglado</div>
     </div>
     <div style={{height:8}}></div>
   </div>
