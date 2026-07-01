@@ -89,12 +89,20 @@
   .floatpts{position:absolute; right:18px; top:50%; font-family:var(--disp); font-weight:800; font-size:18px; pointer-events:none; animation:floatup 1s ease-out forwards}
   @keyframes floatup{0%{opacity:0; transform:translateY(6px)}20%{opacity:1}100%{opacity:0; transform:translateY(-26px)}}
 
+  /* monedero */
+  .wallet{display:flex; align-items:center; justify-content:space-between; gap:12px; background:linear-gradient(135deg, rgba(255,212,94,.13), rgba(255,255,255,.03)); border:1px solid rgba(255,212,94,.3); border-radius:var(--r); padding:14px 16px; margin:6px 0 4px}
+  .wlabel{font-size:12px; font-weight:800; color:var(--muted); letter-spacing:.02em}
+  .wval{font-family:var(--disp); font-weight:800; font-size:27px; line-height:1; margin-top:5px}
+  .wval span{font-size:12px; font-weight:700; color:var(--muted); font-family:var(--body); margin-left:5px}
+  .whint{font-size:10.5px; color:var(--faint); text-align:right; max-width:96px; line-height:1.35}
+
   /* tienda de antojos */
   .shopnote{font-size:12px; color:var(--muted); margin:-2px 4px 9px; line-height:1.5}
   .vice{position:relative; display:flex; align-items:center; gap:12px; background:linear-gradient(135deg, rgba(255,107,107,.07), rgba(255,255,255,.02)); border:1px solid rgba(255,107,107,.18); border-radius:var(--r); padding:12px 13px; margin-bottom:9px; overflow:hidden}
   .vice.used{border-color:rgba(255,107,107,.4)}
   .vemoji{width:42px;height:42px;flex:none;border-radius:12px;display:grid;place-items:center;font-size:22px;background:#241526}
-  .price{font-family:var(--disp); font-weight:800; font-size:13px; color:var(--bad); background:rgba(255,107,107,.12); border:1px solid rgba(255,107,107,.25); padding:3px 9px; border-radius:8px; white-space:nowrap}
+  .price{font-family:var(--disp); font-weight:800; font-size:13px; color:var(--gold); background:rgba(255,212,94,.1); border:1px solid rgba(255,212,94,.24); padding:3px 9px; border-radius:8px; white-space:nowrap}
+  .warn{font-size:10.5px; font-weight:800; color:var(--gold); background:rgba(255,212,94,.1); border:1px solid rgba(255,212,94,.24); padding:2px 8px; border-radius:999px; white-space:nowrap}
   .vcount{font-size:11px;font-weight:800;color:var(--bad);background:rgba(255,107,107,.16);border-radius:999px;min-width:20px;height:20px;display:inline-grid;place-items:center;padding:0 5px}
   .vbtn{font-weight:800; font-size:12.5px; padding:9px 13px; border-radius:11px; background:rgba(255,107,107,.16); border:1px solid rgba(255,107,107,.3); color:#ffd0d0; white-space:nowrap}
   .undo{font-size:13px; opacity:.65; padding:6px}
@@ -246,16 +254,29 @@ function seed(){
 /* ---------- cálculos ---------- */
 const dayOf=(s,pid,k)=>(s.log[pid]&&s.log[pid][k])||null;
 
-function scoreMonth(s,pid,mk){
-  const log=s.log[pid]||{}; let pos=0,neg=0;
-  for(const k in log){ if(monthKeyOf(parseKey(k))!==mk) continue; const day=log[k];
-    if(day.habits) for(const hid in day.habits){ if(day.habits[hid]){ const h=s.habits.find(x=>x.id===hid); if(h) pos+=h.points; } }
-    if(day.vices)  for(const vid in day.vices){ const c=day.vices[vid]||0; const v=s.vices.find(x=>x.id===vid); if(v) neg+=v.price*c; }
+function pOfH(s,hid){ const h=s.habits.find(x=>x.id===hid); return h?h.points:0; }
+function pOfV(s,vid){ const v=s.vices.find(x=>x.id===vid); return v?v.price:0; }
+
+// Recorre el historial en ORDEN: crédito perpetuo (la hucha) + déficit por mes (lo que sí resta al Duelo)
+function wallet(s,pid){
+  const log=s.log[pid]||{}; const days=Object.keys(log).sort();
+  let credit=0; const deficits={};
+  for(const k of days){
+    const mk=monthKeyOf(parseKey(k)); const day=log[k];
+    if(day.habits) for(const hid in day.habits){ if(day.habits[hid]) credit+=pOfH(s,hid); }
+    if(day.vices)  for(const vid in day.vices){ const price=pOfV(s,vid); let c=day.vices[vid]||0;
+      for(let i=0;i<c;i++){ const pay=Math.min(credit,price); credit-=pay; const d=price-pay; if(d>0) deficits[mk]=(deficits[mk]||0)+d; } }
   }
-  return pos-neg;
+  return {credit,deficits};
+}
+function habitPtsMonth(s,pid,mk){
+  const log=s.log[pid]||{}; let p=0;
+  for(const k in log){ if(monthKeyOf(parseKey(k))!==mk) continue; const day=log[k];
+    if(day.habits) for(const hid in day.habits){ if(day.habits[hid]) p+=pOfH(s,hid); } }
+  return p;
 }
 function xpOf(s,pid){ const log=s.log[pid]||{}; let xp=0;
-  for(const k in log){ const day=log[k]; if(day.habits) for(const hid in day.habits){ if(day.habits[hid]){ const h=s.habits.find(x=>x.id===hid); if(h) xp+=h.points; } } }
+  for(const k in log){ const day=log[k]; if(day.habits) for(const hid in day.habits){ if(day.habits[hid]) xp+=pOfH(s,hid); } }
   return xp;
 }
 function streaksFor(s,pid){
@@ -270,12 +291,14 @@ function streaksFor(s,pid){
 function statsFor(s,pid){
   const streaks=streaksFor(s,pid);
   const maxStreak=Math.max(0,...Object.values(streaks));
-  const month=scoreMonth(s,pid,s.monthKey);
+  const w=wallet(s,pid);
+  const duelMonth=habitPtsMonth(s,pid,s.monthKey)-(w.deficits[s.monthKey]||0);
+  const credit=w.credit;
   const xp=xpOf(s,pid); const level=Math.floor(xp/50)+1; const lvlProg=(xp%50)/50;
   const log=s.log[pid]||{};
   let everBig=false, everClean=false, ever=false;
   for(const k in log){ const day=log[k]; const hab=(day.habits)||{}; const vic=(day.vices)||{};
-    let hp=0,hc=0; for(const hid in hab){ if(hab[hid]){ const h=s.habits.find(x=>x.id===hid); if(h){hp+=h.points;hc++;ever=true;} } }
+    let hp=0,hc=0; for(const hid in hab){ if(hab[hid]){ const pp=pOfH(s,hid); if(pp){hp+=pp;hc++;ever=true;} } }
     let vc=0; for(const vid in vic) vc+=vic[vid]||0;
     if(hp>=25) everBig=true;
     if(hc>=3 && vc===0) everClean=true;
@@ -284,14 +307,14 @@ function statsFor(s,pid){
   const un=new Set();
   if(ever) un.add('first'); if(maxStreak>=7) un.add('s7'); if(everBig) un.add('big');
   if(level>=5) un.add('lvl5'); if(everClean) un.add('clean'); if(champ) un.add('champ');
-  return {streaks,maxStreak,month,xp,level,lvlProg,unlocked:un};
+  return {streaks,maxStreak,duelMonth,credit,xp,level,lvlProg,unlocked:un};
 }
 function rollover(s){
   const cmk=monthKeyOf(new Date());
   if(s.monthKey===cmk) return s;
   if(!(s.archive||[]).some(a=>a.monthKey===s.monthKey)){
     const e={monthKey:s.monthKey,scores:{},winner:null};
-    s.players.forEach(p=>e.scores[p.id]=scoreMonth(s,p.id,s.monthKey));
+    s.players.forEach(p=>{ const w=wallet(s,p.id); e.scores[p.id]=habitPtsMonth(s,p.id,s.monthKey)-(w.deficits[s.monthKey]||0); });
     const[a,b]=s.players; const sa=e.scores[a.id],sb2=e.scores[b.id];
     e.winner=sa===sb2?'tie':(sa>sb2?a.id:b.id);
     s.archive=[e,...(s.archive||[])].slice(0,24);
@@ -363,14 +386,20 @@ function App(){
   }
   function doVice(vid){
     const v=data.vices.find(x=>x.id===vid);
-    if(v.price>=50 && !window.confirm(`¿Seguro? "${v.name}" cuesta ${v.price} pts.`)) return;
+    const credit=stats[who].credit;
+    if(credit>=v.price){
+      if(v.price>=50 && !window.confirm(`Comprar "${v.name}" por ${v.price} créditos de tu monedero?`)) return;
+    } else {
+      const falta=v.price-credit;
+      if(!window.confirm(`Solo tienes ${credit} créditos. Hacer "${v.name}" gastará esos ${credit} y te restará ${falta} en el Duelo del mes. ¿Seguro?`)) return;
+    }
     update(n=>{ const L=n.log[who]; L[tk]=L[tk]||{habits:{},vices:{}}; L[tk].vices=L[tk].vices||{}; L[tk].vices[vid]=(L[tk].vices[vid]||0)+1; });
   }
   function undoVice(vid){
     update(n=>{ const L=n.log[who]; if(L[tk]&&L[tk].vices&&L[tk].vices[vid]>0){ L[tk].vices[vid]--; if(L[tk].vices[vid]<=0) delete L[tk].vices[vid]; } });
   }
 
-  const sA=stats[P1.id].month, sB=stats[P2.id].month;
+  const sA=stats[P1.id].duelMonth, sB=stats[P2.id].duelMonth;
   const denom=Math.abs(sA)+Math.abs(sB)+5; const ratio=(sA-sB)/denom; const posA=Math.max(4,Math.min(96,50+ratio*50));
   const leader=sA===sB?null:(sA>sB?P1.id:P2.id);
   const now=new Date(); const dim=daysInMonth(now.getFullYear(),now.getMonth()); const left=dim-now.getDate();
@@ -416,6 +445,7 @@ function App(){
       <div className="center faint" style={{fontSize:12,margin:'2px 0 4px'}}>marcando a <b style={{color:player.color}}>{player.name}</b></div>
 
       <div className="sectlabel"><span>Hábitos de hoy</span><span style={{textTransform:'none',letterSpacing:0,color:'var(--muted)'}}>{now.getDate()} {MESES[now.getMonth()].slice(0,3)}</span></div>
+      <div className="shopnote">Cada hábito suma a la vez: <b>puntos</b> al Duelo del mes y <b>créditos</b> a tu monedero.</div>
       {data.habits.map(h=>{
         const day=dayOf(data,who,tk); const done=!!(day&&day.habits&&day.habits[h.id]);
         const streak=stats[who].streaks[h.id]||0;
@@ -424,7 +454,7 @@ function App(){
             <div className="hemoji">{h.emoji}</div>
             <div className="hmain">
               <div className="hname">{h.name}{h.points>=25 && <span className="htag">+{h.points}</span>}</div>
-              <div className="hsub"><span>+{h.points} {h.points===1?'punto':'pts'}</span>{streak>0 && <span className="flame">🔥 {streak}</span>}</div>
+              <div className="hsub"><span>+{h.points} {h.points===1?'pto':'pts'} · 💰 +{h.points}</span>{streak>0 && <span className="flame">🔥 {streak}</span>}</div>
             </div>
             <button className={'check'+(done?' on':'')} onClick={()=>toggleHabit(h.id)} style={done?{background:player.color}:{}} aria-label={done?'Quitar':'Marcar'}>{done?'✓':''}</button>
             {flash&&flash.hid===h.id && <span className="floatpts" style={{color:player.color}}>+{flash.pts}</span>}
@@ -432,18 +462,27 @@ function App(){
         );
       })}
 
+      <div className="wallet">
+        <div className="winfo">
+          <div className="wlabel">💰 Monedero de {player.name}</div>
+          <div className="wval" style={{color:player.color}}>{stats[who].credit.toLocaleString('es-ES')}<span>créditos</span></div>
+        </div>
+        <div className="whint">gánalos con hábitos, gástalos abajo 👇</div>
+      </div>
+
       <div className="sectlabel">🛒 La tienda de antojos</div>
-      <div className="shopnote">Cada antojo tiene su precio: si lo haces, lo pagas de tus puntos. Si no te llegan, te vas a números rojos.</div>
+      <div className="shopnote">Se pagan con los créditos del monedero. Si no te llegan, la diferencia te resta en el Duelo.</div>
       {data.vices.map(v=>{
         const day=dayOf(data,who,tk); const cnt=(day&&day.vices&&day.vices[v.id])||0;
+        const credit=stats[who].credit; const covered=credit>=v.price;
         return (
           <div key={v.id} className={'vice'+(cnt>0?' used':'')}>
             <div className="vemoji">{v.emoji}</div>
             <div className="hmain">
               <div className="hname" style={{fontSize:14.5}}>{v.name} {cnt>0 && <span className="vcount">{cnt}</span>}</div>
-              <div className="hsub"><span className="price">−{v.price}</span>{cnt>0 && <button className="undo" onClick={()=>undoVice(v.id)}>↩︎ deshacer</button>}</div>
+              <div className="hsub"><span className="price">💰 {v.price}</span>{!covered && <span className="warn">−{v.price-credit} al duelo</span>}{cnt>0 && <button className="undo" onClick={()=>undoVice(v.id)}>↩︎ deshacer</button>}</div>
             </div>
-            <button className="vbtn" onClick={()=>doVice(v.id)}>Lo hice</button>
+            <button className="vbtn" onClick={()=>doVice(v.id)}>Comprar</button>
           </div>
         );
       })}
@@ -468,7 +507,8 @@ function App(){
             <div className="v">Nivel {st.level} <small>· {st.xp} XP</small></div>
             <div className="lvlbar"><i style={{width:(st.lvlProg*100)+'%'}}></i></div>
           </div>
-          <div className="tile"><div className="k">Este mes</div><div className={'v'+(st.month<0?'':'')} style={st.month>=0?{color:player.color}:{color:'var(--bad)'}}>{st.month}<small>pts</small></div></div>
+          <div className="tile" style={{gridColumn:'1 / -1',background:'linear-gradient(135deg, rgba(255,212,94,.12), rgba(255,255,255,.03))',borderColor:'rgba(255,212,94,.28)'}}><div className="k">💰 Monedero (hucha)</div><div className="v" style={{color:'var(--gold)'}}>{st.credit.toLocaleString('es-ES')}<small>créditos</small></div></div>
+          <div className="tile"><div className="k">Duelo · este mes</div><div className="v" style={st.duelMonth>=0?{color:player.color}:{color:'var(--bad)'}}>{st.duelMonth}<small>pts</small></div></div>
           <div className="tile"><div className="k">Mejor racha</div><div className="v">🔥 {st.maxStreak}<small>días</small></div></div>
         </div>
 
@@ -552,9 +592,9 @@ function Ajustes({data,update,setModal}){
           return (<div className="arch" key={i}><div><div className="mon">{MESES[m-1]} {y}</div><div className="faint" style={{fontSize:11.5}}>{data.players.map(p=>p.emoji+' '+(a.scores[p.id]||0)).join('  ·  ')}</div></div><div className="win" style={{color:win?win.color:'var(--muted)'}}>{win?('🏆 '+win.name):'🤝 Empate'}</div></div>); })}
 
     <div className="note">
-      <b>Cómo funciona · </b>El marcador está en la nube y es el mismo para los dos: tú marcas en tu móvil y a Greta le aparece (y al revés). Si marcáis los dos exactamente a la vez podría pisarse algún dato, pero para el día a día va de sobra. Y como los hábitos y antojos son <b>datos</b>, podéis cambiarlos aquí sin tocar nada por debajo.
+      <b>Cómo funciona · </b>Cada hábito suma <b>un punto</b> al Duelo del mes (la competición) y <b>un crédito</b> a tu monedero (una hucha que se guarda para siempre). Los antojos se compran con esos créditos; si te llegan, tu puntuación del Duelo ni se entera, y si no te llegan, la diferencia sí te resta en el Duelo. Todo está en la nube y es el mismo marcador para los dos: tú marcas en tu móvil y a Greta le aparece. Si marcáis los dos a la vez podría pisarse algún dato, pero para el día a día va de sobra.
       <br/><br/>
-      <button className="btn ghost sm" style={{color:'var(--danger)'}} onClick={async()=>{ if(confirm('¿Reiniciar TODO para los dos? Se borra la partida entera. No se puede deshacer.')){ await saveRemote(seed()); location.reload(); } }}>↺ Reiniciar todo</button>
+      <button className="btn ghost sm" style={{color:'var(--danger)'}} onClick={async()=>{ if(confirm('¿Reiniciar TODO para los dos? Se borra la partida entera (puntos y monedero). No se puede deshacer.')){ await saveRemote(seed()); location.reload(); } }}>↺ Reiniciar todo</button>
     </div>
     <div style={{height:8}}></div>
   </div>
