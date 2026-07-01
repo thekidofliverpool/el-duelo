@@ -253,6 +253,13 @@ function seed(){
     log:{p1:{},p2:{}}, prize:'El que pierda invita a una cena 🍝', archive:[],
   };
 }
+// Reinicia SOLO el progreso (marcadores + monedero + histórico). Conserva hábitos, antojos y jugadores.
+function resetProgress(s){
+  const n=JSON.parse(JSON.stringify(s));
+  n.log={}; (n.players||[]).forEach(p=>{ n.log[p.id]={}; });
+  n.archive=[]; n.startDate=todayKey(); n.monthKey=monthKeyOf(new Date());
+  return n;
+}
 
 /* ---------- cálculos ---------- */
 const dayOf=(s,pid,k)=>(s.log[pid]&&s.log[pid][k])||null;
@@ -343,7 +350,7 @@ function App(){
   const [flash,setFlash]=useState(null);
   const [pop,setPop]=useState(null);
   const [choice,setChoice]=useState(null);
-  const lastWrite=useRef(0);
+  const clientId=useRef('c'+Math.random().toString(36).slice(2)+Date.now());
   const chRef=useRef(null);
 
   useEffect(()=>{ let alive=true;
@@ -356,8 +363,10 @@ function App(){
         setData(st); setConn('ok');
         const ch=sb.channel('room-duelo')
           .on('postgres_changes',{event:'UPDATE',schema:'public',table:'game',filter:`id=eq.${ROOM}`},payload=>{
-            if(Date.now()-lastWrite.current<900) return;
-            if(payload.new && payload.new.state && payload.new.state.players) setData(payload.new.state);
+            const st=payload.new && payload.new.state;
+            if(!st || !st.players) return;
+            if(st._w===clientId.current) return; // mi propio eco: ya tengo ese estado en local
+            setData(st);
           })
           .subscribe(status=>{ if(status==='SUBSCRIBED') setConn('ok'); });
         chRef.current=ch;
@@ -370,7 +379,7 @@ function App(){
   useEffect(()=>{ const onVis=async()=>{ if(document.visibilityState==='visible'){ try{ const st=await loadRemote(); if(st&&st.players) setData(rollover(st)); }catch(e){} } };
     document.addEventListener('visibilitychange',onVis); return ()=>document.removeEventListener('visibilitychange',onVis); },[]);
 
-  const update=fn=>setData(d=>{ const n=JSON.parse(JSON.stringify(d)); fn(n); lastWrite.current=Date.now(); saveRemote(n); return n; });
+  const update=fn=>setData(d=>{ const n=JSON.parse(JSON.stringify(d)); fn(n); n._w=clientId.current; saveRemote(n); return n; });
 
   if(conn==='err' && !data) return (
     <div className="loader">
@@ -617,9 +626,12 @@ function Ajustes({data,update,setModal}){
           return (<div className="arch" key={i}><div><div className="mon">{MESES[m-1]} {y}</div><div className="faint" style={{fontSize:11.5}}>{data.players.map(p=>p.emoji+' '+(a.scores[p.id]||0)).join('  ·  ')}</div></div><div className="win" style={{color:win?win.color:'var(--muted)'}}>{win?('🏆 '+win.name):'🤝 Empate'}</div></div>); })}
 
     <div className="note">
-      <b>Cómo funciona · </b>Cada hábito suma a la vez <b>un punto</b> al Duelo del mes y <b>un crédito</b> a tu monedero (una hucha para siempre), por separado. Al hacer un antojo eliges: pagarlo <b>con créditos</b> (tu Duelo no se toca) o <b>del Duelo</b> (guardas tus créditos). Si no tienes créditos, va directo al Duelo. Todo en la nube y sincronizado con Greta: si marcáis a la vez podría pisarse algo, pero para el día a día va de sobra.
+      <b>Cómo funciona · </b>Cada hábito suma a la vez <b>un punto</b> al Duelo del mes y <b>un crédito</b> a tu monedero (una hucha para siempre), por separado. Al hacer un antojo eliges: pagarlo <b>con créditos</b> (tu Duelo no se toca) o <b>del Duelo</b> (guardas tus créditos). Si no tienes créditos, va directo al Duelo. Todo en la nube y sincronizado con Greta.
       <br/><br/>
-      <button className="btn ghost sm" style={{color:'var(--danger)'}} onClick={async()=>{ if(confirm('¿Reiniciar TODO para los dos? Se borra la partida entera (puntos y monedero). No se puede deshacer.')){ await saveRemote(seed()); location.reload(); } }}>↺ Reiniciar todo</button>
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        <button className="btn ghost sm" onClick={async()=>{ if(confirm('¿Poner a CERO los marcadores y el monedero de los dos?\n\nSe CONSERVAN tus hábitos, antojos y jugadores. No se puede deshacer.')){ await saveRemote(resetProgress(data)); location.reload(); } }}>↺ Reiniciar solo los puntos (mantiene tu configuración)</button>
+        <button className="btn ghost sm" style={{color:'var(--danger)'}} onClick={async()=>{ if(confirm('¿BORRAR TODO y volver a los valores de fábrica?\n\nSe pierden también tus hábitos y antojos personalizados. No se puede deshacer.')){ await saveRemote(seed()); location.reload(); } }}>🗑️ Borrar todo (volver de fábrica)</button>
+      </div>
     </div>
     <div style={{height:8}}></div>
   </div>
