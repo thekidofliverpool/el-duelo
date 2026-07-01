@@ -204,8 +204,13 @@ const SUPA_URL='https://dosysjfwfnnvakddsbfw.supabase.co';
 const SUPA_KEY='sb_publishable_QBNJe-p1b0Sxks9cGhnOhw_u1IGp889';
 const ROOM='duelo';
 const sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
-async function loadRemote(){ const {data,error}=await sb.from('game').select('state').eq('id',ROOM).maybeSingle(); if(error) throw error; return data?data.state:null; }
-async function saveRemote(state){ const {error}=await sb.from('game').update({state, updated_at:new Date().toISOString()}).eq('id',ROOM); if(error) console.warn('save',error); }
+async function loadRemote(){ const {data,error}=await sb.from('game').select('state,updated_at').eq('id',ROOM).maybeSingle(); if(error) throw error; return data||null; }
+let lastWriteAt=0; // marca temporal de mi última escritura, para que un re-fetch no pise cambios recién hechos
+async function saveRemote(state){
+  const ts=new Date().toISOString(); lastWriteAt=Date.parse(ts);
+  let {error}=await sb.from('game').update({state, updated_at:ts}).eq('id',ROOM);
+  if(error){ console.warn('save 1',error); try{ const r=await sb.from('game').update({state, updated_at:new Date().toISOString()}).eq('id',ROOM); if(r.error) console.warn('save 2',r.error); }catch(e){ console.warn('save retry',e); } }
+}
 
 /* ---------- fechas ---------- */
 const pad=n=>String(n).padStart(2,'0');
@@ -230,27 +235,29 @@ const BADGES=[
 function seed(){
   return {
     v:1, startDate:todayKey(), monthKey:monthKeyOf(new Date()),
-    players:[{id:'p1',name:'Diego',color:'#27DCE8',emoji:'🦊'},{id:'p2',name:'Greta',color:'#FF6F91',emoji:'🦋'}],
+    players:[{id:'p1',name:'Diechis',color:'#27DCE8',emoji:'🍆'},{id:'p2',name:'Grechus',color:'#FF6F91',emoji:'🍑'}],
     habits:[
       {id:'h_water',name:'Agua (mín. 2L)',emoji:'💧',points:1},
       {id:'h_sleep',name:'Dormir temprano',emoji:'🌙',points:1},
       {id:'h_read', name:'Leer 20 min',emoji:'📖',points:1},
       {id:'h_nosmoke',name:'Día sin fumar',emoji:'🚭',points:1},
       {id:'h_train',name:'Día entrenado',emoji:'💪',points:1},
-      {id:'h_wash', name:'Lavarse de noche',emoji:'🪥',points:1},
-      {id:'h_screen',name:'Pantalla bajo objetivo',emoji:'📵',points:1},
-      {id:'h_nophone',name:'No phone policy',emoji:'📴',points:1},
+      {id:'h_wash', name:'Lavar platos de noche',emoji:'🧽',points:1},
+      {id:'h_screen',name:'Social media –2h/day',emoji:'📵',points:1},
+      {id:'h_nophone',name:'No phone policy 30 min before 😴',emoji:'📴',points:1},
       {id:'h_wakeup',name:'Levantarse antes de las 9',emoji:'⏰',points:1},
       {id:'h_clean',name:'Limpiar a fondo la casa',emoji:'🧹',points:25},
       {id:'h_morning',name:'2 h sin pantallas al despertar',emoji:'☀️',points:25},
+      {id:'h_all',name:'COMPLETAR TODOS LOS HÁBITOS de 1pt',emoji:'✅',points:25},
+      {id:'h_nospend',name:'24h SIN GASTAR $',emoji:'💸',points:15},
     ],
     vices:[
       {id:'v_smoke',name:'Fumar 1 cigarro',emoji:'🚬',price:200},
       {id:'v_junk', name:'Comida chatarra',emoji:'🍔',price:30},
-      {id:'v_late', name:'Dormirse tarde',emoji:'🌚',price:25},
-      {id:'v_lateup',name:'Levantarse tarde',emoji:'🥱',price:25},
+      {id:'v_late', name:'Acostarse tarde (00:30)',emoji:'🌚',price:25},
+      {id:'v_lateup',name:'Levantarse tarde (9:00)',emoji:'🥱',price:25},
     ],
-    log:{p1:{},p2:{}}, prize:'El que pierda invita a una cena 🍝', archive:[],
+    log:{p1:{},p2:{}}, prize:'El que pierda (?)', archive:[],
   };
 }
 // Reinicia SOLO el progreso (marcadores + monedero + histórico). Conserva hábitos, antojos y jugadores.
@@ -356,9 +363,9 @@ function App(){
   useEffect(()=>{ let alive=true;
     (async()=>{
       try{
-        let st=await loadRemote();
+        const r0=await loadRemote(); let st=r0?r0.state:null;
         if(!st || !st.players){ st=seed(); await saveRemote(st); }
-        st=rollover(st); if(st.monthKey!==monthKeyOf(new Date())) {} 
+        st=rollover(st);
         if(!alive) return;
         setData(st); setConn('ok');
         const ch=sb.channel('room-duelo')
@@ -376,7 +383,7 @@ function App(){
   },[]);
 
   // re-sincronizar al volver a la app
-  useEffect(()=>{ const onVis=async()=>{ if(document.visibilityState==='visible'){ try{ const st=await loadRemote(); if(st&&st.players) setData(rollover(st)); }catch(e){} } };
+  useEffect(()=>{ const onVis=async()=>{ if(document.visibilityState==='visible'){ try{ const r=await loadRemote(); if(r && r.state && r.state.players && Date.parse(r.updated_at||0) > lastWriteAt) setData(rollover(r.state)); }catch(e){} } };
     document.addEventListener('visibilitychange',onVis); return ()=>document.removeEventListener('visibilitychange',onVis); },[]);
 
   const update=fn=>setData(d=>{ const n=JSON.parse(JSON.stringify(d)); fn(n); n._w=clientId.current; saveRemote(n); return n; });
@@ -632,6 +639,7 @@ function Ajustes({data,update,setModal}){
         <button className="btn ghost sm" onClick={async()=>{ if(confirm('¿Poner a CERO los marcadores y el monedero de los dos?\n\nSe CONSERVAN tus hábitos, antojos y jugadores. No se puede deshacer.')){ await saveRemote(resetProgress(data)); location.reload(); } }}>↺ Reiniciar solo los puntos (mantiene tu configuración)</button>
         <button className="btn ghost sm" style={{color:'var(--danger)'}} onClick={async()=>{ if(confirm('¿BORRAR TODO y volver a los valores de fábrica?\n\nSe pierden también tus hábitos y antojos personalizados. No se puede deshacer.')){ await saveRemote(seed()); location.reload(); } }}>🗑️ Borrar todo (volver de fábrica)</button>
       </div>
+      <div className="faint" style={{fontSize:11,textAlign:'center',marginTop:14,opacity:.7}}>El Duelo · versión 3 · sync reforzada</div>
     </div>
     <div style={{height:8}}></div>
   </div>
