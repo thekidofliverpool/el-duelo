@@ -105,6 +105,7 @@
   .warn{font-size:10.5px; font-weight:800; color:var(--gold); background:rgba(255,212,94,.1); border:1px solid rgba(255,212,94,.24); padding:2px 8px; border-radius:999px; white-space:nowrap}
   .paytag{font-size:10.5px; font-weight:800; color:var(--gold); background:rgba(255,212,94,.12); padding:2px 7px; border-radius:999px; white-space:nowrap}
   .paytag.pt{color:#ff9a9a; background:rgba(255,107,107,.14)}
+  .paytag.px{color:#ffc39a; background:rgba(255,170,110,.14)}
   .vcount{font-size:11px;font-weight:800;color:var(--bad);background:rgba(255,107,107,.16);border-radius:999px;min-width:20px;height:20px;display:inline-grid;place-items:center;padding:0 5px}
   .vbtn{font-weight:800; font-size:12.5px; padding:9px 13px; border-radius:11px; background:rgba(255,107,107,.16); border:1px solid rgba(255,107,107,.3); color:#ffd0d0; white-space:nowrap}
   .undo{font-size:16px; color:var(--muted); background:var(--surface); border:1px solid var(--line); width:38px; height:38px; border-radius:50%; display:inline-grid; place-items:center; padding:0; flex:none}
@@ -297,7 +298,7 @@ function creditOf(s,pid){
   const log=s.log[pid]||{}; let c=0;
   for(const k in log){ const day=log[k];
     if(day.habits) for(const hid in day.habits){ if(day.habits[hid]) c+=pOfH(s,hid); }
-    if(day.vices) for(const vid in day.vices){ const price=pOfV(s,vid); for(const e of viceList(day.vices[vid])){ if(e.pay==='c') c-=price; } }
+    if(day.vices) for(const vid in day.vices){ const price=pOfV(s,vid); for(const e of viceList(day.vices[vid])){ if(e.pay==='c') c-=price; else if(e.pay==='x') c-=(e.c||0); } }
   }
   return c;
 }
@@ -306,7 +307,7 @@ function duelMonthOf(s,pid,mk){
   const log=s.log[pid]||{}; let p=0;
   for(const k in log){ if(monthKeyOf(parseKey(k))!==mk) continue; const day=log[k];
     if(day.habits) for(const hid in day.habits){ if(day.habits[hid]) p+=pOfH(s,hid); }
-    if(day.vices) for(const vid in day.vices){ const price=pOfV(s,vid); for(const e of viceList(day.vices[vid])){ if(e.pay==='p') p-=price; } }
+    if(day.vices) for(const vid in day.vices){ const price=pOfV(s,vid); for(const e of viceList(day.vices[vid])){ if(e.pay==='p') p-=price; else if(e.pay==='x') p-=(e.d!=null?e.d:Math.max(0,price-(e.c||0))); } }
   }
   return p;
 }
@@ -427,11 +428,17 @@ function App(){
   function doVice(vid){
     const v=data.vices.find(x=>x.id===vid);
     const credit=stats[who].credit;
-    if(credit>=v.price){ setChoice(vid); }
-    else if(window.confirm(`No te llegan créditos (tienes ${credit}). Esto restará ${v.price} de tu Duelo. ¿Seguro?`)) payVice(vid,'p');
+    if(credit>0){ setChoice(vid); }
+    else if(window.confirm(`No tienes créditos. "${v.name}" restará ${v.price} de tu Duelo. ¿Seguro?`)) payVice(vid,'p');
   }
   function payVice(vid,pay){
-    update(n=>{ const L=n.log[who]; L[selKey]=L[selKey]||{habits:{},vices:{}}; L[selKey].vices=L[selKey].vices||{}; const lst=viceList(L[selKey].vices[vid]); lst.push({pay}); L[selKey].vices[vid]=lst; });
+    const v=data.vices.find(x=>x.id===vid);
+    const credit=stats[who].credit;
+    update(n=>{ const L=n.log[who]; L[selKey]=L[selKey]||{habits:{},vices:{}}; L[selKey].vices=L[selKey].vices||{};
+      const lst=viceList(L[selKey].vices[vid]);
+      if(pay==='x'){ const c=Math.max(0,Math.min(credit,v.price)); lst.push({pay:'x',c:c,d:v.price-c}); }
+      else lst.push({pay});
+      L[selKey].vices[vid]=lst; });
     setChoice(null);
   }
   function undoVice(vid){
@@ -528,13 +535,13 @@ function App(){
       <div className="shopnote">Al hacer un antojo eliges cómo pagarlo: <b>💰 con créditos</b> (no toca el Duelo) o <b>⚔️ del Duelo</b> (guardas créditos). Sin créditos, va directo al Duelo.</div>
       {data.vices.map(v=>{
         const day=dayOf(data,who,selKey); const lst=viceList(day&&day.vices&&day.vices[v.id]);
-        const cc=lst.filter(e=>e.pay==='c').length, pp=lst.filter(e=>e.pay==='p').length; const cnt=lst.length;
+        const cc=lst.filter(e=>e.pay==='c').length, pp=lst.filter(e=>e.pay==='p').length, xx=lst.filter(e=>e.pay==='x').length; const cnt=lst.length;
         return (
           <div key={v.id} className={'vice'+(cnt>0?' used':'')}>
             <div className="vemoji">{v.emoji}</div>
             <div className="hmain">
               <div className="hname" style={{fontSize:14.5}}>{v.name} {cnt>0 && <span className="vcount">{cnt}</span>}</div>
-              <div className="hsub"><span className="price">cuesta {v.price}</span>{cc>0 && <span className="paytag">💰 {cc}</span>}{pp>0 && <span className="paytag pt">⚔️ {pp}</span>}{cnt>0 && <button className="undo" onClick={()=>undoVice(v.id)}>↩︎</button>}</div>
+              <div className="hsub"><span className="price">cuesta {v.price}</span>{cc>0 && <span className="paytag">💰 {cc}</span>}{xx>0 && <span className="paytag px">💰+⚔️ {xx}</span>}{pp>0 && <span className="paytag pt">⚔️ {pp}</span>}{cnt>0 && <button className="undo" onClick={()=>undoVice(v.id)}>↩︎</button>}</div>
             </div>
             <button className="vbtn" onClick={()=>doVice(v.id)}>Hacer</button>
           </div>
@@ -600,13 +607,15 @@ function App(){
 
     {modal && <Modal modal={modal} setModal={setModal} data={data} update={update} />}
 
-    {choice && (()=>{ const v=data.vices.find(x=>x.id===choice); const credit=stats[who].credit; return (
+    {choice && (()=>{ const v=data.vices.find(x=>x.id===choice); const credit=Math.max(0,stats[who].credit);
+      const full=credit>=v.price; const partial=credit>0 && credit<v.price; return (
       <div className="overlay" onClick={e=>{ if(e.target===e.currentTarget) setChoice(null); }}>
         <div className="modal">
           <div className="modalHead"><h2>{v.emoji} {v.name}</h2><button className="iconbtn" onClick={()=>setChoice(null)}>✕</button></div>
-          <p style={{fontSize:13,color:'var(--muted)',margin:'2px 0 16px'}}>Cuesta <b style={{color:'var(--text)'}}>{v.price}</b>. ¿Cómo lo pagas?</p>
-          <button className="btn full" style={{background:'var(--gold)',color:'#2a1d00',marginBottom:10,padding:'14px',flexDirection:'column',gap:3}} onClick={()=>payVice(choice,'c')}>💰 Con mis créditos<small style={{fontWeight:700,opacity:.72}}>monedero: {credit} → {credit-v.price}</small></button>
-          <button className="btn full ghost" style={{padding:'14px',flexDirection:'column',gap:3}} onClick={()=>payVice(choice,'p')}>⚔️ Del Duelo<small style={{fontWeight:700,color:'var(--bad)'}}>−{v.price} a tu marcador del mes</small></button>
+          <p style={{fontSize:13,color:'var(--muted)',margin:'2px 0 16px'}}>Cuesta <b style={{color:'var(--text)'}}>{v.price}</b> · tienes <b style={{color:'var(--gold)'}}>{credit}</b> créditos. ¿Cómo lo pagas?</p>
+          {full && <button className="btn full" style={{background:'var(--gold)',color:'#2a1d00',marginBottom:10,padding:'14px',flexDirection:'column',gap:3}} onClick={()=>payVice(choice,'c')}>💰 Con mis créditos<small style={{fontWeight:700,opacity:.72}}>monedero: {credit} → {credit-v.price}</small></button>}
+          {partial && <button className="btn full" style={{background:'var(--gold)',color:'#2a1d00',marginBottom:10,padding:'14px',flexDirection:'column',gap:3}} onClick={()=>payVice(choice,'x')}>💰+⚔️ Mis {credit} créditos y el resto del Duelo<small style={{fontWeight:700,opacity:.72}}>monedero → 0 · −{v.price-credit} al Duelo</small></button>}
+          <button className="btn full ghost" style={{padding:'14px',flexDirection:'column',gap:3}} onClick={()=>payVice(choice,'p')}>⚔️ Todo del Duelo<small style={{fontWeight:700,color:'var(--bad)'}}>−{v.price} a tu marcador del mes</small></button>
           <div className="faint" style={{fontSize:11,textAlign:'center',marginTop:12}}>Tus créditos son una hucha: guárdalos si quieres.</div>
         </div>
       </div>
@@ -664,7 +673,7 @@ function Ajustes({data,update,setModal}){
         <button className="btn ghost sm" onClick={async()=>{ if(confirm('¿Poner a CERO los marcadores y el monedero de los dos?\n\nSe CONSERVAN tus hábitos, antojos y jugadores. No se puede deshacer.')){ await saveRemote(resetProgress(data)); location.reload(); } }}>↺ Reiniciar solo los puntos (mantiene tu configuración)</button>
         <button className="btn ghost sm" style={{color:'var(--danger)'}} onClick={async()=>{ if(confirm('¿BORRAR TODO y volver a los valores de fábrica?\n\nSe pierden también tus hábitos y antojos personalizados. No se puede deshacer.')){ await saveRemote(seed()); location.reload(); } }}>🗑️ Borrar todo (volver de fábrica)</button>
       </div>
-      <div className="faint" style={{fontSize:11,textAlign:'center',marginTop:14,opacity:.7}}>El Duelo · versión 4 · días anteriores + deshacer arreglado</div>
+      <div className="faint" style={{fontSize:11,textAlign:'center',marginTop:14,opacity:.7}}>El Duelo · versión 5 · pago mixto 💰+⚔️</div>
     </div>
     <div style={{height:8}}></div>
   </div>
